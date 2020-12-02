@@ -1,0 +1,107 @@
+#
+# kubectl apply -k .
+#
+# [1] https://docs.min.io/docs/minio-docker-quickstart-guide.html
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: minio-server
+  # Dont let two  Pods run at the same time.  FIXME: Actually Minio is
+  # supposed be be able to handle concurrent access.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        component: minio-server
+    spec:
+      # Volumes used by some or all containers of the Pod:
+      volumes:
+      - name: "minio-data"
+        persistentVolumeClaim:
+          claimName: "minio-data"
+      containers:
+      - name: minio-server
+        # docker run -p 9000:9000 \
+        # --name minio1 \
+        # -v /mnt/data:/data \
+        # -e "MINIO_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE" \
+        # -e "MINIO_SECRET_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" \
+        # minio/minio server /data
+        image: minio/minio:latest
+        command: ["minio"]
+        args: ["server", "/data"]
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9000
+        volumeMounts:
+        - mountPath: "/data"
+          name: "minio-data"
+        env:
+        - name: "MINIO_ACCESS_KEY"
+          value: "AKIAIOSFODNN7EXAMPLE"
+        - name: "MINIO_SECRET_KEY"
+          value: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      # initContainers:
+      # - name: minio-init
+      #   image: busybox:latest
+      #   command: ["true"]
+      #   # command: ["tail", "-f", "/dev/null"]
+      #   volumeMounts:
+      #     - mountPath: "/d"
+      #       name: "minio-data"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-server
+spec:
+  type: ClusterIP
+  selector:
+    component: minio-server
+  ports:
+  - port: 9000
+    targetPort: 9000
+---
+#
+# We  assume here  that  *.localhost resolves  to  the local  machine.
+# Following URL should be directed to corresponding Service, also with
+# https:// protocoll:
+#
+#     http://minio.localhost
+#
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: minio
+spec:
+  rules:
+  - host: minio.localhost
+    http:
+      paths:
+      - backend:
+          serviceName: minio-server
+          servicePort: 9000
+---
+# https://github.com/rancher/local-path-provisioner
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # When you  dont specify  storage class at  all the  default storage
+  # class may be chosen. In k3s with local-path provisioner it is also
+  # the  default one.  Omitted  storageClassName is  not  the same  as
+  # storageClassName = "".
+  # storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+...
